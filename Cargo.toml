@@ -1,0 +1,14 @@
+[package]
+name = "strata-wallet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# The core primitives (Transactions, Scripts, etc.)
+bitcoin = { version = "0.32", features = ["rand", "serde"] }
+
+# For the BIP-39 Mnemonic logic
+bip39 = "2.0.0"
+
+# For handling hexadecimal strings (useful for P2PK hex)
+hex = "0.4"
