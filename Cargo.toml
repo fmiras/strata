@@ -1,5 +1,5 @@
 [package]
-name = "strata-wallet"
+name = "strata"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,5 +10,11 @@ bitcoin = { version = "0.32", features = ["rand", "serde"] }
 # For the BIP-39 Mnemonic logic
 bip39 = "2.0.0"
 
+# CLI Argument Parser
+clap = { version = "4.5", features = ["derive"] }
+
 # For handling hexadecimal strings (useful for P2PK hex)
 hex = "0.4"
+
+# For generating random entropy
+rand = "0.8"
