@@ -1,7 +1,8 @@
-mod generate_mnemonic;
+mod mnemonic;
 
 use clap::{Parser, Subcommand};
-use generate_mnemonic::generate_mnemonic;
+
+use crate::mnemonic::generate_and_save_mnemonic;
 
 #[derive(Parser)]
 #[command(name = "strata")]
@@ -17,6 +18,9 @@ enum Commands {
     Generate {
         #[arg(short, long, default_value_t = 12)]
         words: usize,
+        /// Display the generated mnemonic in console output
+        #[arg(short, long)]
+        show: bool,
     },
 }
 
@@ -24,8 +28,20 @@ fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Generate { words } => {
-            generate_mnemonic(*words);
+        Commands::Generate { words, show } => {
+            match generate_and_save_mnemonic(*words) {
+                Ok(mnemonic) => {
+                    let phrase = mnemonic.words().collect::<Vec<_>>().join(" ");
+                    if *show {
+                        println!("⚠️ WARNING: This is for educational purposes only. Do not use this mnemonic in a production environment.");
+                        println!("{}", phrase);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error generating mnemonic: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
     }
 }
