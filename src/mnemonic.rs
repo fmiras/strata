@@ -1,4 +1,4 @@
-use bip39::{Mnemonic, Language};
+use bip39::Mnemonic;
 use keyring::Entry;
 use rand::RngCore;
 use std::error::Error;
@@ -24,7 +24,7 @@ pub fn generate_mnemonic(word_count: usize) -> Result<Mnemonic, Box<dyn Error>> 
     let mut entropy = vec![0u8; entropy_size];
     rand::thread_rng().fill_bytes(&mut entropy);
 
-    Ok(Mnemonic::from_entropy_in(Language::English, &entropy)?)
+    Ok(Mnemonic::from_entropy_in(bip39::Language::English, &entropy)?)
 }
 
 pub fn generate_and_save_mnemonic(word_count: usize) -> Result<Mnemonic, Box<dyn Error>> {
@@ -34,16 +34,23 @@ pub fn generate_and_save_mnemonic(word_count: usize) -> Result<Mnemonic, Box<dyn
 }
 
 /// Retrieves the mnemonic. 
-/// Returns Result<Option<String>>: 
+/// Returns Result<Option<Mnemonic>>: 
 /// - Ok(Some) = Wallet found.
 /// - Ok(None) = No wallet exists (not an error, just empty).
 /// - Err = Keychain is locked or OS error.
-pub fn load_mnemonic() -> Result<Option<String>, Box<dyn Error>> {
+pub fn load_mnemonic() -> Result<Option<Mnemonic>, Box<dyn Error>> {
     let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME)?;
     
     match entry.get_password() {
-        Ok(phrase) => Ok(Some(phrase)),
-        Err(keyring::Error::NoEntry) => Ok(None), 
+        Ok(password) => {
+            if password.is_empty() {
+                Ok(None)
+            } else {
+                let mnemonic = Mnemonic::parse_in(bip39::Language::English, &password)?;
+                Ok(Some(mnemonic))
+            }
+        }
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(Box::new(e)),
     }
 }

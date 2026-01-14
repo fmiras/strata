@@ -1,8 +1,11 @@
 mod mnemonic;
+mod hd_wallet;
 
 use clap::{Parser, Subcommand};
+use bitcoin::Network;
 
-use crate::mnemonic::generate_and_save_mnemonic;
+use crate::mnemonic::{generate_and_save_mnemonic, load_mnemonic};
+use crate::hd_wallet::derive_xpub;
 
 #[derive(Parser)]
 #[command(name = "strata")]
@@ -22,6 +25,12 @@ enum Commands {
         #[arg(short, long)]
         show: bool,
     },
+    /// Show the extended public key (xpub) of the saved mnemonic
+    Xpub {
+        /// Network to use (mainnet, testnet, signet, regtest)
+        #[arg(short, long, default_value = "mainnet")]
+        network: String,
+    },
 }
 
 fn main() {
@@ -39,6 +48,42 @@ fn main() {
                 }
                 Err(e) => {
                     eprintln!("Error generating mnemonic: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Xpub { network } => {
+            // Parse network
+            let network = match network.as_str() {
+                "mainnet" => Network::Bitcoin,
+                "testnet" => Network::Testnet,
+                "signet" => Network::Signet,
+                "regtest" => Network::Regtest,
+                _ => {
+                    eprintln!("Error: Invalid network. Must be one of: mainnet, testnet, signet, regtest");
+                    std::process::exit(1);
+                }
+            };
+
+            // Load mnemonic from keychain
+            match load_mnemonic() {
+                Ok(Some(mnemonic)) => {
+                    match derive_xpub(&mnemonic, network) {
+                        Ok(xpub) => {
+                            println!("{}", xpub);
+                        }
+                        Err(e) => {
+                            eprintln!("Error deriving xpub: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Ok(None) => {
+                    eprintln!("Error: No mnemonic found in keychain. Generate one first using 'strata generate'.");
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("Error loading mnemonic from keychain: {}", e);
                     std::process::exit(1);
                 }
             }
