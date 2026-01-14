@@ -3,11 +3,6 @@ use keyring::Entry;
 use rand::RngCore;
 use std::error::Error;
 
-#[cfg(target_os = "macos")]
-use security_framework::os::macos::keychain::SecKeychainItem;
-use security_framework::os::macos::access_control::{SecAccessControl, SecAccessControlCreateFlags};
-use security_framework::base::Error as SecurityError;
-
 const SERVICE_NAME: &str = "strata-wallet";
 const ACCOUNT_NAME: &str = "default";
 
@@ -15,7 +10,6 @@ pub fn save_mnemonic(phrase: &str) -> Result<(), Box<dyn Error>> {
     let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME)?;
     entry.set_password(phrase)?;
     println!("✅ Mnemonic (BIP39) saved in keychain.");
-    println!("💡 Note: To enable Touch ID, open Keychain Access, find '{}', double-click it, and enable 'Require Touch ID' in Access Control.", SERVICE_NAME);
     Ok(())
 }
 

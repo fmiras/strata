@@ -473,7 +473,6 @@ dependencies = [
  "hex",
  "keyring",
  "rand",
- "security-framework 2.11.1",
 ]
 
 [[package]]
