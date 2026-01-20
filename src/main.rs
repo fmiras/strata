@@ -57,6 +57,8 @@ fn main() {
                     let config = Config {
                         xpub_mainnet: Some(xpub_mainnet),
                         xpub_testnet: Some(xpub_testnet),
+                        address_index_mainnet: 0,
+                        address_index_testnet: 0,
                     };
 
                     if let Err(e) = save_config(&config) {
@@ -126,17 +128,26 @@ fn main() {
 
             // Load xpub from config file (no keychain access needed)
             match load_config() {
-                Ok(config) => {
-                    let xpub = match network {
-                        Network::Bitcoin => config.xpub_mainnet,
-                        _ => config.xpub_testnet,
+                Ok(mut config) => {
+                    let (xpub, index) = match network {
+                        Network::Bitcoin => (config.xpub_mainnet.clone(), config.address_index_mainnet),
+                        _ => (config.xpub_testnet.clone(), config.address_index_testnet),
                     };
 
                     match xpub {
                         Some(xpub_str) => {
-                            match derive_address_from_xpub(&xpub_str, network) {
+                            match derive_address_from_xpub(&xpub_str, network, index) {
                                 Ok(address) => {
                                     println!("{}", address);
+
+                                    // Increment index and save config
+                                    match network {
+                                        Network::Bitcoin => config.address_index_mainnet += 1,
+                                        _ => config.address_index_testnet += 1,
+                                    }
+                                    if let Err(e) = save_config(&config) {
+                                        eprintln!("Warning: Failed to save updated index: {}", e);
+                                    }
                                 }
                                 Err(e) => {
                                     eprintln!("Error deriving address: {}", e);

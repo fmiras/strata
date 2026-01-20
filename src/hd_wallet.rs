@@ -36,16 +36,15 @@ pub fn derive_bip44_account_xpub(mnemonic: &Mnemonic, network: Network) -> Resul
 }
 
 /// Derives a legacy P2PKH address from a BIP44 account xpub.
-/// Derives path /0/0 (external chain, first address) from the account xpub.
-pub fn derive_address_from_xpub(xpub_str: &str, network: Network) -> Result<String, Box<dyn Error>> {
-    let _network = network; // Used to validate address format matches xpub
+/// Derives path /0/index (external chain, address at index) from the account xpub.
+pub fn derive_address_from_xpub(xpub_str: &str, network: Network, index: u32) -> Result<String, Box<dyn Error>> {
     let xpub = xpub_str.parse::<XPub>()?;
 
-    // Derive /0/0 (external chain, first address)
+    // Derive /0/index (external chain, address at index)
     let external_chain = xpub.derive_child(ChildNumber::new(0, false)?)?;
-    let first_address_key = external_chain.derive_child(ChildNumber::new(0, false)?)?;
+    let address_key = external_chain.derive_child(ChildNumber::new(index, false)?)?;
 
-    let public_key_bytes = first_address_key.to_bytes();
+    let public_key_bytes = address_key.to_bytes();
     // if we convert to Hex here we could return classic P2PK (without hashing)
     // Ok(hex::encode(public_key_bytes))
 

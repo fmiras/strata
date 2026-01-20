@@ -33,8 +33,8 @@ This project is an "archaeological dig" through Bitcoin's script history—trave
 
 ### Phase 2: The Address Book (Reception)
 - [ ] Create an "Address Generator" command to derive:
-    - [ ] **P2PK** (Raw Pubkey Hex - No standard address)
-    - [ ] **P2PKH** (Legacy - `1...` or `m/n...` for Testnet)
+    - [x] **P2PK** (Raw Pubkey Hex - No standard address)
+    - [x] **P2PKH** (Legacy - `1...` or `m/n...` for Testnet)
     - [ ] **P2WPKH** (Native SegWit - `bc1q...` or `tb1q...`)
     - [ ] **P2TR** (Taproot - `bc1p...` or `tb1p...`)
 
