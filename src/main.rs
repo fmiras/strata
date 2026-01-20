@@ -6,7 +6,7 @@ use bitcoin::Network;
 use clap::{Parser, Subcommand};
 
 use crate::config::{load_config, save_config, Config};
-use crate::hd_wallet::{derive_address_from_xpub, derive_bip44_account_xpub};
+use crate::hd_wallet::{derive_address_from_xpub, derive_bip44_account_xpub, AddressType};
 use crate::mnemonic::{generate_and_save_mnemonic, load_mnemonic};
 
 #[derive(Parser)]
@@ -33,8 +33,11 @@ enum Commands {
         #[arg(short, long, default_value = "mainnet")]
         network: String,
     },
-    /// Generate a receive address (legacy P2PKH)
+    /// Generate a receive address
     Receive {
+        /// Address type: p2pkh (default) or p2pk (raw public key)
+        #[arg(default_value = "p2pkh")]
+        address_type: String,
         /// Network to use (mainnet, testnet, signet, regtest)
         #[arg(short, long, default_value = "mainnet")]
         network: String,
@@ -57,8 +60,8 @@ fn main() {
                     let config = Config {
                         xpub_mainnet: Some(xpub_mainnet),
                         xpub_testnet: Some(xpub_testnet),
-                        address_index_mainnet: 0,
-                        address_index_testnet: 0,
+                        addresses_mainnet: Vec::new(),
+                        addresses_testnet: Vec::new(),
                     };
 
                     if let Err(e) = save_config(&config) {
@@ -113,7 +116,17 @@ fn main() {
                 }
             }
         }
-        Commands::Receive { network } => {
+        Commands::Receive { address_type, network } => {
+            // Parse address type
+            let addr_type = match address_type.as_str() {
+                "p2pkh" => AddressType::P2pkh,
+                "p2pk" => AddressType::P2pk,
+                _ => {
+                    eprintln!("Error: Invalid address type. Must be one of: p2pkh, p2pk");
+                    std::process::exit(1);
+                }
+            };
+
             // Parse network
             let network = match network.as_str() {
                 "mainnet" => Network::Bitcoin,
@@ -129,24 +142,24 @@ fn main() {
             // Load xpub from config file (no keychain access needed)
             match load_config() {
                 Ok(mut config) => {
-                    let (xpub, index) = match network {
-                        Network::Bitcoin => (config.xpub_mainnet.clone(), config.address_index_mainnet),
-                        _ => (config.xpub_testnet.clone(), config.address_index_testnet),
+                    let (xpub, addresses) = match network {
+                        Network::Bitcoin => (config.xpub_mainnet.clone(), &mut config.addresses_mainnet),
+                        _ => (config.xpub_testnet.clone(), &mut config.addresses_testnet),
                     };
+
+                    // Use array length as index for next address
+                    let index = addresses.len() as u32;
 
                     match xpub {
                         Some(xpub_str) => {
-                            match derive_address_from_xpub(&xpub_str, network, index) {
+                            match derive_address_from_xpub(&xpub_str, network, index, addr_type) {
                                 Ok(address) => {
                                     println!("{}", address);
 
-                                    // Increment index and save config
-                                    match network {
-                                        Network::Bitcoin => config.address_index_mainnet += 1,
-                                        _ => config.address_index_testnet += 1,
-                                    }
+                                    // Add address to array and save config
+                                    addresses.push(address);
                                     if let Err(e) = save_config(&config) {
-                                        eprintln!("Warning: Failed to save updated index: {}", e);
+                                        eprintln!("Warning: Failed to save address to config: {}", e);
                                     }
                                 }
                                 Err(e) => {

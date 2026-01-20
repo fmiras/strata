@@ -11,9 +11,9 @@ pub struct Config {
     pub xpub_mainnet: Option<String>,
     pub xpub_testnet: Option<String>,
     #[serde(default)]
-    pub address_index_mainnet: u32,
+    pub addresses_mainnet: Vec<String>,
     #[serde(default)]
-    pub address_index_testnet: u32,
+    pub addresses_testnet: Vec<String>,
 }
 
 fn get_config_path() -> Result<PathBuf, Box<dyn Error>> {

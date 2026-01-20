@@ -35,9 +35,23 @@ pub fn derive_bip44_account_xpub(mnemonic: &Mnemonic, network: Network) -> Resul
     Ok(xpub.to_string(prefix))
 }
 
-/// Derives a legacy P2PKH address from a BIP44 account xpub.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum AddressType {
+    #[default]
+    P2pkh,
+    P2pk,
+}
+
+/// Derives an address from a BIP44 account xpub.
 /// Derives path /0/index (external chain, address at index) from the account xpub.
-pub fn derive_address_from_xpub(xpub_str: &str, network: Network, index: u32) -> Result<String, Box<dyn Error>> {
+/// For P2PKH: returns the hashed address (e.g., 1ABC...)
+/// For P2PK: returns the raw compressed public key in hex
+pub fn derive_address_from_xpub(
+    xpub_str: &str,
+    network: Network,
+    index: u32,
+    address_type: AddressType,
+) -> Result<String, Box<dyn Error>> {
     let xpub = xpub_str.parse::<XPub>()?;
 
     // Derive /0/index (external chain, address at index)
@@ -45,11 +59,17 @@ pub fn derive_address_from_xpub(xpub_str: &str, network: Network, index: u32) ->
     let address_key = external_chain.derive_child(ChildNumber::new(index, false)?)?;
 
     let public_key_bytes = address_key.to_bytes();
-    // if we convert to Hex here we could return classic P2PK (without hashing)
-    // Ok(hex::encode(public_key_bytes))
 
-    let compressed_pubkey = CompressedPublicKey::from_slice(&public_key_bytes)?;
-
-    let address = Address::p2pkh(compressed_pubkey, network);
-    Ok(address.to_string())
+    match address_type {
+        AddressType::P2pk => {
+            // Return raw compressed public key in hex
+            Ok(hex::encode(public_key_bytes))
+        }
+        AddressType::P2pkh => {
+            // Return hashed P2PKH address
+            let compressed_pubkey = CompressedPublicKey::from_slice(&public_key_bytes)?;
+            let address = Address::p2pkh(compressed_pubkey, network);
+            Ok(address.to_string())
+        }
+    }
 }
