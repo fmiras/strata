@@ -29,7 +29,7 @@ This project is an "archaeological dig" through Bitcoin's script history—trave
 ### Phase 1: The Seed (Foundation) 
 - [x] Initialize Rust project.
 - [x] Implement BIP-39: Generate Mnemonic and 512-bit Seed.
-- [ ] Implement BIP-32: Master Xpriv derivation and child key derivation.
+- [x] Implement BIP-32: Master Xpriv derivation and child key derivation.
 
 ### Phase 2: The Address Book (Reception)
 - [ ] Create an "Address Generator" command to derive:

@@ -1,4 +1,4 @@
-use bip32::{DerivationPath, Prefix, XPrv};
+use bip32::{ChildNumber, DerivationPath, Prefix, XPrv, XPub};
 use bip39::Mnemonic;
 use bitcoin::address::Address;
 use bitcoin::key::CompressedPublicKey;
@@ -6,61 +6,51 @@ use bitcoin::Network;
 use std::error::Error;
 use std::str::FromStr;
 
-/// Derives the extended public key (xpub) from a mnemonic.
-/// Uses BIP39 to convert mnemonic to seed, then BIP32 to derive the master xpub.
-pub fn derive_xpub(mnemonic: &Mnemonic, network: Network) -> Result<String, Box<dyn Error>> {
-    // Convert mnemonic to seed (BIP39)
+/// Derives the BIP44 account-level extended public key from a mnemonic.
+/// Path: m/44'/coin'/0' where coin is 0 for mainnet, 1 for testnet.
+/// This xpub can be used to derive receive addresses without the private key.
+pub fn derive_bip44_account_xpub(mnemonic: &Mnemonic, network: Network) -> Result<String, Box<dyn Error>> {
     let seed = mnemonic.to_seed("");
-    
-    // Derive master extended private key from seed (BIP32)
-    let master_key: XPrv = XPrv::new(seed)?;
-    
-    // Get the extended public key from the master private key
-    let xpub = master_key.public_key();
-    
-    // Determine the prefix based on network
-    let prefix = match network {
-        Network::Bitcoin => Prefix::XPUB,
-        Network::Testnet | Network::Signet | Network::Regtest | Network::Testnet4 => Prefix::TPUB,
-    };
-    
-    // Format as xpub string (base58 encoded) with network prefix
-    Ok(xpub.to_string(prefix))
-}
-
-/// Derives a legacy P2PKH address from a mnemonic using BIP44 derivation.
-/// Path: m/44'/coin'/0'/0/0 where coin is 0 for mainnet, 1 for testnet.
-pub fn derive_legacy_address(mnemonic: &Mnemonic, network: Network) -> Result<String, Box<dyn Error>> {
-    // Convert mnemonic to seed (BIP39)
-    let seed = mnemonic.to_seed("");
-
-    // Derive master extended private key from seed (BIP32)
     let master_key: XPrv = XPrv::new(seed)?;
 
-    // BIP44 path: m/44'/coin'/0'/0/0
-    // coin_type: 0 for mainnet, 1 for testnet/signet/regtest
     let coin_type = match network {
         Network::Bitcoin => 0,
         Network::Testnet | Network::Signet | Network::Regtest | Network::Testnet4 => 1,
     };
 
-    let path = DerivationPath::from_str(&format!("m/44'/{}'/0'/0/0", coin_type))?;
+    // BIP44 account path: m/44'/coin'/0'
+    let path = DerivationPath::from_str(&format!("m/44'/{}'/0'", coin_type))?;
 
-    // Derive the child key
     let mut derived_key = master_key;
     for child in path {
         derived_key = derived_key.derive_child(child)?;
     }
 
-    // Get the public key
-    let public_key = derived_key.public_key();
-    let public_key_bytes = public_key.to_bytes();
+    let xpub = derived_key.public_key();
+    let prefix = match network {
+        Network::Bitcoin => Prefix::XPUB,
+        Network::Testnet | Network::Signet | Network::Regtest | Network::Testnet4 => Prefix::TPUB,
+    };
 
-    // Convert to bitcoin CompressedPublicKey
+    Ok(xpub.to_string(prefix))
+}
+
+/// Derives a legacy P2PKH address from a BIP44 account xpub.
+/// Derives path /0/0 (external chain, first address) from the account xpub.
+pub fn derive_address_from_xpub(xpub_str: &str, network: Network) -> Result<String, Box<dyn Error>> {
+    let _network = network; // Used to validate address format matches xpub
+    let xpub = xpub_str.parse::<XPub>()?;
+
+    // Derive /0/0 (external chain, first address)
+    let external_chain = xpub.derive_child(ChildNumber::new(0, false)?)?;
+    let first_address_key = external_chain.derive_child(ChildNumber::new(0, false)?)?;
+
+    let public_key_bytes = first_address_key.to_bytes();
+    // if we convert to Hex here we could return classic P2PK (without hashing)
+    // Ok(hex::encode(public_key_bytes))
+
     let compressed_pubkey = CompressedPublicKey::from_slice(&public_key_bytes)?;
 
-    // Create P2PKH address
     let address = Address::p2pkh(compressed_pubkey, network);
-
     Ok(address.to_string())
 }
