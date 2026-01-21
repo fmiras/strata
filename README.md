@@ -22,6 +22,13 @@ This project is an "archaeological dig" through Bitcoin's script history—trave
 | **Observer** | Fetching UTXOs and network state | `esplora-client` (Signet) |
 | **Craftsman** | Manual Tx assembly and manual signing | `rust-bitcoin` (Transaction) |
 
+## Usage
+
+You can use real Bitcoins at any time to test the different functionalities of the wallet, but it is suggested to use testnet as the wallet was not deeply tested nor audited. For using Signet testnet you can do the following:
+- Get some coins by using [Signet BTC Faucet](https://signet.dcorral.com)
+    - Make sure to send this to a generated address with network signet flag `strata receive --network signet`
+- For receiving some classic P2PK (unsupported by modern wallets) you can use this [P2PK Playground](https://supertestnet.github.io/p2pk_playground)
+
 ---
 
 ## TODO
@@ -68,11 +75,11 @@ This project is an "archaeological dig" through Bitcoin's script history—trave
 # Generate a new master seed
 strata generate --words 12
 
-# Derive addresses for specific layers
-strata derive --type p2wpkh --index 0
+# Derive addresses for receiving BTC
+strata receive p2wpkh
 
 # List available UTXOs across all scripts
-strata list-utxos
+strata utxo ls
 
 # Manually craft a spend
 strata send --input <TXID:VOUT> --to <ADDR> --fee <SATS_vB>
