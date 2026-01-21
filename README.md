@@ -22,7 +22,7 @@ This project is an "archaeological dig" through Bitcoin's script history—trave
 | **Observer** | Fetching UTXOs and network state | `esplora-client` (Signet) |
 | **Craftsman** | Manual Tx assembly and manual signing | `rust-bitcoin` (Transaction) |
 
-## Usage
+## Testing
 
 You can use real Bitcoins at any time to test the different functionalities of the wallet, but it is suggested to use testnet as the wallet was not deeply tested nor audited. For using Signet testnet you can do the following:
 - Get some coins by using [Signet BTC Faucet](https://signet.dcorral.com)
