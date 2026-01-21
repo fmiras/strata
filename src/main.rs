@@ -4,6 +4,7 @@ mod mnemonic;
 
 use bitcoin::Network;
 use clap::{Parser, Subcommand};
+use dialoguer::{console::Style, theme::ColorfulTheme, Select};
 
 use crate::config::{load_config, save_config, Config};
 use crate::hd_wallet::{derive_address_from_xpub, derive_bip44_account_xpub, AddressType};
@@ -36,9 +37,9 @@ enum Commands {
     /// Generate a receive address
     #[command(alias = "derive")]
     Receive {
-        /// Address type: p2wpkh (default), p2pkh, p2pk, or p2tr
-        #[arg(default_value = "p2wpkh")]
-        address_type: String,
+        /// Address type: p2wpkh, p2pkh, p2pk, or p2tr (interactive if not specified)
+        #[arg(short = 't', long = "type")]
+        address_type: Option<String>,
         /// Network to use (mainnet, testnet, signet, regtest)
         #[arg(short, long, default_value = "mainnet")]
         network: String,
@@ -121,15 +122,50 @@ fn main() {
             }
         }
         Commands::Receive { address_type, network, index } => {
-            // Parse address type
-            let addr_type = match address_type.as_str() {
-                "p2wpkh" => AddressType::P2wpkh,
-                "p2pkh" => AddressType::P2pkh,
-                "p2pk" => AddressType::P2pk,
-                "p2tr" => AddressType::P2tr,
-                _ => {
-                    eprintln!("Error: Invalid address type. Must be one of: p2wpkh, p2pkh, p2pk, p2tr");
-                    std::process::exit(1);
+            // Parse or prompt for address type
+            let addr_type = match address_type {
+                Some(t) => match t.as_str() {
+                    "p2wpkh" => AddressType::P2wpkh,
+                    "p2pkh" => AddressType::P2pkh,
+                    "p2pk" => AddressType::P2pk,
+                    "p2tr" => AddressType::P2tr,
+                    _ => {
+                        eprintln!("Error: Invalid address type. Must be one of: p2wpkh, p2pkh, p2pk, p2tr");
+                        std::process::exit(1);
+                    }
+                },
+                None => {
+                    // Interactive selection
+                    let theme = ColorfulTheme {
+                        active_item_style: Style::new().cyan().bold(),
+                        active_item_prefix: dialoguer::console::style("  > ".to_string()).cyan().bold(),
+                        prompt_style: Style::new().bold(),
+                        ..ColorfulTheme::default()
+                    };
+
+                    let options = vec![
+                        ("P2WPKH", "Native SegWit (bc1q...)", AddressType::P2wpkh),
+                        ("P2TR", "Taproot (bc1p...)", AddressType::P2tr),
+                        ("P2PKH", "Legacy (1...)", AddressType::P2pkh),
+                        ("P2PK", "Raw public key (hex)", AddressType::P2pk),
+                    ];
+
+                    let items: Vec<String> = options
+                        .iter()
+                        .map(|(name, desc, _)| format!("{} - {}", name, desc))
+                        .collect();
+
+                    let selection = Select::with_theme(&theme)
+                        .with_prompt("Select address type")
+                        .items(&items)
+                        .default(0)
+                        .interact()
+                        .unwrap_or_else(|_| {
+                            eprintln!("Error: Failed to get user selection");
+                            std::process::exit(1);
+                        });
+
+                    options[selection].2
                 }
             };
 
