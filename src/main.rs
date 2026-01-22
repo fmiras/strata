@@ -1,13 +1,15 @@
 mod config;
 mod hd_wallet;
+mod mempool;
 mod mnemonic;
 
 use bitcoin::Network;
 use clap::{Parser, Subcommand};
-use dialoguer::{console::Style, theme::ColorfulTheme, Select};
+use dialoguer::{console::{style, Style}, theme::ColorfulTheme, Select};
 
 use crate::config::{load_config, save_config, Config};
 use crate::hd_wallet::{derive_address_from_xpub, derive_bip44_account_xpub, AddressType};
+use crate::mempool::fetch_utxos;
 use crate::mnemonic::{generate_and_save_mnemonic, load_mnemonic};
 
 #[derive(Parser)]
@@ -47,6 +49,37 @@ enum Commands {
         #[arg(short, long)]
         index: Option<u32>,
     },
+    /// Manage UTXOs
+    #[command(alias = "utxos")]
+    Utxo {
+        #[command(subcommand)]
+        command: UtxoCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum UtxoCommands {
+    /// List UTXOs for all generated addresses
+    Ls {
+        /// Network to use (mainnet, testnet, signet)
+        #[arg(short, long, default_value = "mainnet")]
+        network: String,
+    },
+}
+
+/// Detect script type from address prefix
+fn detect_script_type(address: &str) -> &'static str {
+    if address.starts_with("bc1q") || address.starts_with("tb1q") {
+        "P2WPKH"
+    } else if address.starts_with("bc1p") || address.starts_with("tb1p") {
+        "P2TR"
+    } else if address.starts_with('1') || address.starts_with('m') || address.starts_with('n') {
+        "P2PKH"
+    } else if address.starts_with('3') || address.starts_with('2') {
+        "P2SH"
+    } else {
+        "Unknown"
+    }
 }
 
 fn main() {
@@ -224,5 +257,95 @@ fn main() {
                 }
             }
         }
+        Commands::Utxo { command } => match command {
+            UtxoCommands::Ls { network } => {
+                // Parse network
+                let network = match network.as_str() {
+                    "mainnet" => Network::Bitcoin,
+                    "testnet" => Network::Testnet,
+                    "signet" => Network::Signet,
+                    _ => {
+                        eprintln!("Error: Invalid network. Must be one of: mainnet, testnet, signet");
+                        eprintln!("Note: regtest is not supported by mempool.space API");
+                        std::process::exit(1);
+                    }
+                };
+
+                // Load addresses from config
+                match load_config() {
+                    Ok(config) => {
+                        let addresses = match network {
+                            Network::Bitcoin => &config.addresses_mainnet,
+                            _ => &config.addresses_testnet,
+                        };
+
+                        if addresses.is_empty() {
+                            println!("No addresses found. Generate addresses first using 'strata receive'.");
+                            return;
+                        }
+
+                        println!("Scanning {} addresses for UTXOs...\n", addresses.len());
+
+                        let mut total_utxos = 0;
+                        let mut total_value: u64 = 0;
+
+                        for address in addresses {
+                            match fetch_utxos(address, network) {
+                                Ok(utxos) => {
+                                    if !utxos.is_empty() {
+                                        let script_type = detect_script_type(address);
+                                        println!("Address: {}", address);
+                                        println!("{}", "-".repeat(64));
+
+                                        for utxo in &utxos {
+                                            let status = if utxo.status.confirmed {
+                                                format!("confirmed (block {})", utxo.status.block_height.unwrap_or(0))
+                                            } else {
+                                                "unconfirmed".to_string()
+                                            };
+
+                                            let btc_value = utxo.value as f64 / 100_000_000.0;
+
+                                            println!(
+                                                "  TXID:   {}",
+                                                utxo.txid
+                                            );
+                                            println!("  Vout:   {}", utxo.vout);
+                                            println!("  Amount: {} sats ({} BTC)",
+                                                style(utxo.value).color256(208),
+                                                style(format!("{:.8}", btc_value)).color256(208));
+                                            println!("  Type:   {}", script_type);
+                                            println!("  Status: {}", status);
+                                            println!();
+
+                                            total_utxos += 1;
+                                            total_value += utxo.value;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Warning: Failed to fetch UTXOs for {}: {}", address, e);
+                                }
+                            }
+                        }
+
+                        if total_utxos == 0 {
+                            println!("No UTXOs found.");
+                        } else {
+                            let total_btc = total_value as f64 / 100_000_000.0;
+                            println!("{}", "=".repeat(64));
+                            println!("Total: {} UTXOs, {} sats ({} BTC)",
+                                total_utxos,
+                                style(total_value).color256(208).bold(),
+                                style(format!("{:.8}", total_btc)).color256(208).bold());
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error loading config: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        },
     }
 }
