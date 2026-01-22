@@ -42,12 +42,12 @@ You can use real Bitcoins at any time to test the different functionalities of t
 - [ ] Create an "Address Generator" command to derive:
     - [x] **P2PK** (Raw Pubkey Hex - No standard address)
     - [x] **P2PKH** (Legacy - `1...` or `m/n...` for Testnet)
-    - [ ] **P2WPKH** (Native SegWit - `bc1q...` or `tb1q...`)
-    - [ ] **P2TR** (Taproot - `bc1p...` or `tb1p...`)
+    - [x] **P2WPKH** (Native SegWit - `bc1q...` or `tb1q...`)
+    - [x] **P2TR** (Taproot - `bc1p...` or `tb1p...`)
 
 ### Phase 3: The Observer (Blockchain Sync)
 - [ ] Integrate an Esplora client (Mempool.space API).
-- [ ] Create a `list-utxos` command that scans your derived addresses.
+- [ ] Create a `utxo ls` command that scans your derived addresses.
 - [ ] Display UTXO data: TXID, Vout, Amount, and ScriptType.
 
 ### Phase 4: The Script Factory (Spending - Legacy & SegWit)
@@ -70,13 +70,13 @@ You can use real Bitcoins at any time to test the different functionalities of t
 
 ---
 
-## 🛠️ Usage (Planned)
+## 🛠️ Usage
 ```bash
 # Generate a new master seed
 strata generate --words 12
 
 # Derive addresses for receiving BTC
-strata receive p2wpkh
+strata receive --type p2wpkh
 
 # List available UTXOs across all scripts
 strata utxo ls
