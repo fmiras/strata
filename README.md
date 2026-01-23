@@ -46,9 +46,10 @@ You can use real Bitcoins at any time to test the different functionalities of t
     - [x] **P2TR** (Taproot - `bc1p...` or `tb1p...`)
 
 ### Phase 3: The Observer (Blockchain Sync)
-- [ ] Integrate an Esplora client (Mempool.space API).
-- [ ] Create a `utxo ls` command that scans your derived addresses.
-- [ ] Display UTXO data: TXID, Vout, Amount, and ScriptType.
+- [x] Integrate an Esplora client (Mempool.space API).
+- [x] Create a `utxo ls` command that scans your derived addresses.
+- [x] Display UTXO data: TXID, Vout, Amount, and ScriptType.
+- [ ] Verify blocks headers as a true SPV client
 
 ### Phase 4: The Script Factory (Spending - Legacy & SegWit)
 - [ ] Implement manual Transaction Building:
