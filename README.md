@@ -84,3 +84,8 @@ strata utxo ls
 
 # Manually craft a spend
 strata send --input <TXID:VOUT> --to <ADDR> --fee <SATS_vB>
+```
+
+## Misc
+
+- [First ever transaction](https://mempool.space/tx/100a20405407d7dccae6a33af18700659f9b8b697c65371047b04f2d5135c664?mode=details) made with this wallet

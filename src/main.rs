@@ -2,15 +2,27 @@ mod config;
 mod hd_wallet;
 mod mempool;
 mod mnemonic;
+mod qr;
 
-use bitcoin::Network;
+use arboard::Clipboard;
+use bitcoin::address::Address;
+use bitcoin::blockdata::locktime::absolute::LockTime;
+use bitcoin::blockdata::script::ScriptBuf;
+use bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut, Version};
+use bitcoin::consensus::encode::serialize_hex;
+use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::{Message, Secp256k1};
+use bitcoin::sighash::SighashCache;
+use bitcoin::{EcdsaSighashType, Network, Sequence, Txid, Witness};
 use clap::{Parser, Subcommand};
 use dialoguer::{console::{style, Style}, theme::ColorfulTheme, Select};
+use std::str::FromStr;
 
 use crate::config::{load_config, save_config, Config};
-use crate::hd_wallet::{derive_address_from_xpub, derive_bip44_account_xpub, AddressType};
-use crate::mempool::fetch_utxos;
+use crate::hd_wallet::{derive_address_from_xpub, derive_bip44_account_xpub, derive_private_key, derive_public_key, AddressType};
+use crate::mempool::{broadcast_tx, fetch_tx, fetch_utxos};
 use crate::mnemonic::{generate_and_save_mnemonic, load_mnemonic};
+use crate::qr::print_qr_code;
 
 #[derive(Parser)]
 #[command(name = "strata")]
@@ -32,7 +44,7 @@ enum Commands {
     },
     /// Show the extended public key (xpub) of the saved mnemonic
     Xpub {
-        /// Network to use (mainnet, testnet, signet, regtest)
+        /// Network to use (mainnet, testnet, signet)
         #[arg(short, long, default_value = "mainnet")]
         network: String,
     },
@@ -42,7 +54,7 @@ enum Commands {
         /// Address type: p2wpkh, p2pkh, p2pk, or p2tr (interactive if not specified)
         #[arg(short = 't', long = "type")]
         address_type: Option<String>,
-        /// Network to use (mainnet, testnet, signet, regtest)
+        /// Network to use (mainnet, testnet, signet)
         #[arg(short, long, default_value = "mainnet")]
         network: String,
         /// Force a specific address index (overrides auto-increment)
@@ -54,6 +66,22 @@ enum Commands {
     Utxo {
         #[command(subcommand)]
         command: UtxoCommands,
+    },
+    /// Send bitcoin to an address (supports P2PKH and P2WPKH)
+    #[command(alias = "spend")]
+    Send {
+        /// Input UTXO in format TXID:VOUT
+        #[arg(short, long)]
+        input: String,
+        /// Destination address
+        #[arg(short, long)]
+        to: String,
+        /// Total fee in sats
+        #[arg(short, long)]
+        fee: u64,
+        /// Network to use (mainnet, testnet, signet)
+        #[arg(short, long, default_value = "mainnet")]
+        network: String,
     },
 }
 
@@ -79,6 +107,34 @@ fn detect_script_type(address: &str) -> &'static str {
         "P2SH"
     } else {
         "Unknown"
+    }
+}
+
+/// Parse network string to Network enum
+/// 
+/// # Arguments
+/// * `network_str` - Network string (mainnet, testnet, signet)
+/// 
+/// # Returns
+/// * `Ok(Network)` - Parsed network
+/// * `Err(String)` - Error message if network is invalid
+fn parse_network(network_str: &str) -> Result<Network, String> {
+    match network_str {
+        "mainnet" => Ok(Network::Bitcoin),
+        "testnet" => Ok(Network::Testnet),
+        "signet" => Ok(Network::Signet),
+        _ => {
+            Err("Error: Invalid network. Must be one of: mainnet, testnet, signet".to_string())
+        }
+    }
+}
+
+
+/// Copy text to clipboard and return success status
+fn copy_to_clipboard(text: &str) -> bool {
+    match Clipboard::new() {
+        Ok(mut clipboard) => clipboard.set_text(text).is_ok(),
+        Err(_) => false,
     }
 }
 
@@ -120,13 +176,10 @@ fn main() {
         }
         Commands::Xpub { network } => {
             // Parse network
-            let network = match network.as_str() {
-                "mainnet" => Network::Bitcoin,
-                "testnet" => Network::Testnet,
-                "signet" => Network::Signet,
-                "regtest" => Network::Regtest,
-                _ => {
-                    eprintln!("Error: Invalid network. Must be one of: mainnet, testnet, signet, regtest");
+            let network = match parse_network(&network) {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("{}", e);
                     std::process::exit(1);
                 }
             };
@@ -203,13 +256,10 @@ fn main() {
             };
 
             // Parse network
-            let network = match network.as_str() {
-                "mainnet" => Network::Bitcoin,
-                "testnet" => Network::Testnet,
-                "signet" => Network::Signet,
-                "regtest" => Network::Regtest,
-                _ => {
-                    eprintln!("Error: Invalid network. Must be one of: mainnet, testnet, signet, regtest");
+            let network = match parse_network(&network) {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("{}", e);
                     std::process::exit(1);
                 }
             };
@@ -229,7 +279,18 @@ fn main() {
                         Some(xpub_str) => {
                             match derive_address_from_xpub(&xpub_str, network, derive_index, addr_type) {
                                 Ok(address) => {
+                                    // Print QR code (skip for P2PK since it's just a hex pubkey)
+                                    if addr_type != AddressType::P2pk {
+                                        print_qr_code(&address);
+                                    }
+
+                                    // Print address
                                     println!("{}", address);
+
+                                    // Copy to clipboard and show status
+                                    if copy_to_clipboard(&address) {
+                                        println!("{}", style("(copied to clipboard)").cyan());
+                                    }
 
                                     // Only update config if not using forced index
                                     if index.is_none() {
@@ -260,13 +321,10 @@ fn main() {
         Commands::Utxo { command } => match command {
             UtxoCommands::Ls { network } => {
                 // Parse network
-                let network = match network.as_str() {
-                    "mainnet" => Network::Bitcoin,
-                    "testnet" => Network::Testnet,
-                    "signet" => Network::Signet,
-                    _ => {
-                        eprintln!("Error: Invalid network. Must be one of: mainnet, testnet, signet");
-                        eprintln!("Note: regtest is not supported by mempool.space API");
+                let network = match parse_network(&network) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!("{}", e);
                         std::process::exit(1);
                     }
                 };
@@ -347,5 +405,260 @@ fn main() {
                 }
             }
         },
+        Commands::Send { input, to, fee, network } => {
+            // Parse network
+            let network = match parse_network(&network) {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Parse input (TXID:VOUT)
+            let parts: Vec<&str> = input.split(':').collect();
+            if parts.len() != 2 {
+                eprintln!("Error: Invalid input format. Expected TXID:VOUT (e.g., 5702c1...:0)");
+                std::process::exit(1);
+            }
+            let txid_str = parts[0];
+            let vout: u32 = match parts[1].parse() {
+                Ok(v) => v,
+                Err(_) => {
+                    eprintln!("Error: Invalid vout. Must be a number.");
+                    std::process::exit(1);
+                }
+            };
+
+            // Fetch the previous transaction to get the scriptPubKey and value
+            println!("Fetching transaction {}...", txid_str);
+            let prev_tx = match fetch_tx(txid_str, network) {
+                Ok(tx) => tx,
+                Err(e) => {
+                    eprintln!("Error fetching transaction: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let prev_output = match prev_tx.vout.get(vout as usize) {
+                Some(out) => out,
+                None => {
+                    eprintln!("Error: Output index {} not found in transaction", vout);
+                    std::process::exit(1);
+                }
+            };
+
+            // Check if this is a supported output type
+            let script_type = &prev_output.scriptpubkey_type;
+            if script_type != "p2pkh" && script_type != "v0_p2wpkh" {
+                eprintln!("Error: Only P2PKH and P2WPKH outputs are supported. This output is: {}", script_type);
+                std::process::exit(1);
+            }
+
+            let input_value = prev_output.value;
+            let prev_scriptpubkey = ScriptBuf::from_hex(&prev_output.scriptpubkey)
+                .expect("Invalid scriptPubKey hex");
+
+            // Load config to find which address owns this UTXO
+            let config = match load_config() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error loading config: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let addresses = match network {
+                Network::Bitcoin => &config.addresses_mainnet,
+                _ => &config.addresses_testnet,
+            };
+
+            // Find the address index that owns this UTXO
+            let mut found_index: Option<u32> = None;
+            for (idx, addr) in addresses.iter().enumerate() {
+                let addr_script_type = detect_script_type(addr);
+                // Check P2PKH and P2WPKH addresses
+                if addr_script_type == "P2PKH" || addr_script_type == "P2WPKH" {
+                    let addr_parsed = Address::from_str(addr)
+                        .expect("Invalid address in config")
+                        .require_network(network)
+                        .expect("Address network mismatch");
+
+                    if addr_parsed.script_pubkey() == prev_scriptpubkey {
+                        found_index = Some(idx as u32);
+                        println!("Found UTXO owner: {} (index {}, type {})", addr, idx, addr_script_type);
+                        break;
+                    }
+                }
+            }
+
+            let address_index = match found_index {
+                Some(idx) => idx,
+                None => {
+                    eprintln!("Error: Could not find the address that owns this UTXO in your wallet.");
+                    std::process::exit(1);
+                }
+            };
+
+            // Load mnemonic and derive private key
+            let mnemonic = match load_mnemonic() {
+                Ok(Some(m)) => m,
+                Ok(None) => {
+                    eprintln!("Error: No mnemonic found in keychain. Generate one first using 'strata generate'.");
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("Error loading mnemonic: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let secret_key = match derive_private_key(&mnemonic, network, address_index) {
+                Ok(sk) => sk,
+                Err(e) => {
+                    eprintln!("Error deriving private key: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Parse destination address
+            let dest_address = match Address::from_str(to) {
+                Ok(addr) => match addr.require_network(network) {
+                    Ok(a) => a,
+                    Err(_) => {
+                        eprintln!("Error: Destination address is not valid for this network");
+                        std::process::exit(1);
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error parsing destination address: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Dust threshold for outputs (546 sats)
+            const DUST_THRESHOLD: u64 = 546;
+
+            // Validate: input must cover fee + dust threshold at minimum
+            let min_required = fee + DUST_THRESHOLD;
+            if input_value < min_required {
+                eprintln!("Error: Input value ({} sats) is insufficient.", input_value);
+                eprintln!("  Required: {} sats (fee) + {} sats (dust threshold) = {} sats minimum",
+                    fee, DUST_THRESHOLD, min_required);
+                std::process::exit(1);
+            }
+
+            let output_value = input_value - fee;
+
+            println!("\nTransaction Details:");
+            println!("{}", "-".repeat(64));
+            println!("Input:  {}:{}", txid_str, vout);
+            println!("Value:  {} sats", style(input_value).color256(208));
+            println!("To:     {}", to);
+            println!("Amount: {} sats", style(output_value).color256(208));
+            println!("Fee:    {} sats", style(*fee).color256(208));
+            println!("{}", "-".repeat(64));
+
+            // Build the transaction
+            let txid = Txid::from_str(txid_str).expect("Invalid transaction id");
+            let outpoint = OutPoint { txid, vout };
+
+            let tx_in = TxIn {
+                previous_output: outpoint,
+                script_sig: ScriptBuf::new(), // Will be filled after signing
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            };
+
+            let tx_out = TxOut {
+                value: bitcoin::Amount::from_sat(output_value),
+                script_pubkey: dest_address.script_pubkey(),
+            };
+
+            let mut unsigned_tx = Transaction {
+                version: Version::TWO,
+                lock_time: LockTime::ZERO,
+                input: vec![tx_in],
+                output: vec![tx_out],
+            };
+
+            // Get the public key for signing
+            let public_key = match derive_public_key(&mnemonic, network, address_index) {
+                Ok(pk) => pk,
+                Err(e) => {
+                    eprintln!("Error deriving public key: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let secp = Secp256k1::new();
+
+            if script_type == "v0_p2wpkh" {
+                // Sign P2WPKH (SegWit v0)
+                let mut sighash_cache = SighashCache::new(&mut unsigned_tx);
+
+                let sighash = sighash_cache
+                    .p2wpkh_signature_hash(
+                        0,
+                        &prev_scriptpubkey,
+                        bitcoin::Amount::from_sat(input_value),
+                        EcdsaSighashType::All,
+                    )
+                    .expect("Failed to compute segwit sighash");
+
+                let message = Message::from_digest(*sighash.as_byte_array());
+                let signature = secp.sign_ecdsa(&message, &secret_key);
+
+                // Build witness: [signature, pubkey]
+                let mut sig_bytes = signature.serialize_der().to_vec();
+                sig_bytes.push(EcdsaSighashType::All.to_u32() as u8);
+
+                let mut witness = Witness::new();
+                witness.push(&sig_bytes);
+                witness.push(&public_key.to_bytes());
+
+                *sighash_cache.witness_mut(0).unwrap() = witness;
+            } else {
+                // Sign P2PKH (Legacy)
+                let sighash_cache = SighashCache::new(&unsigned_tx);
+
+                let sighash = sighash_cache
+                    .legacy_signature_hash(0, &prev_scriptpubkey, EcdsaSighashType::All.to_u32())
+                    .expect("Failed to compute sighash");
+
+                let message = Message::from_digest(*sighash.as_byte_array());
+                let signature = secp.sign_ecdsa(&message, &secret_key);
+
+                // Build scriptSig: <signature> <pubkey>
+                let mut sig_bytes = signature.serialize_der().to_vec();
+                sig_bytes.push(EcdsaSighashType::All.to_u32() as u8);
+
+                let script_sig = bitcoin::blockdata::script::Builder::new()
+                    .push_slice::<&bitcoin::script::PushBytes>(sig_bytes.as_slice().try_into().expect("signature too long"))
+                    .push_slice::<&bitcoin::script::PushBytes>(public_key.to_bytes().as_slice().try_into().expect("pubkey too long"))
+                    .into_script();
+
+                unsigned_tx.input[0].script_sig = script_sig;
+            }
+
+            // Serialize and broadcast
+            let tx_hex = serialize_hex(&unsigned_tx);
+
+            println!("\nRaw Transaction:");
+            println!("{}", tx_hex);
+            println!();
+
+            println!("Broadcasting transaction...");
+            match broadcast_tx(&tx_hex, network) {
+                Ok(txid) => {
+                    println!("\nTransaction broadcast successfully!");
+                    println!("TXID: {}", style(txid).color256(208).bold());
+                }
+                Err(e) => {
+                    eprintln!("\nError broadcasting transaction: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 }
