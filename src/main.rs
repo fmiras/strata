@@ -95,6 +95,20 @@ enum UtxoCommands {
     },
 }
 
+/// Format a number with comma separators (e.g., 1000000 -> "1,000,000")
+fn format_with_commas<T: std::fmt::Display>(n: T) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    for (i, c) in chars.iter().enumerate() {
+        if i > 0 && (chars.len() - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(*c);
+    }
+    result
+}
+
 /// Detect script type from address prefix
 fn detect_script_type(address: &str) -> &'static str {
     if address.starts_with("bc1q") || address.starts_with("tb1q") {
@@ -342,7 +356,11 @@ fn main() {
                             return;
                         }
 
-                        println!("Scanning {} addresses for UTXOs...\n", addresses.len());
+                        println!(
+                            "{} {} addresses for UTXOs...\n",
+                            style("Scanning").dim(),
+                            addresses.len()
+                        );
 
                         let mut total_utxos = 0;
                         let mut total_value: u64 = 0;
@@ -352,50 +370,93 @@ fn main() {
                                 Ok(utxos) => {
                                     if !utxos.is_empty() {
                                         let script_type = detect_script_type(address);
-                                        println!("Address: {}", address);
-                                        println!("{}", "-".repeat(64));
 
-                                        for utxo in &utxos {
-                                            let status = if utxo.status.confirmed {
-                                                format!("confirmed (block {})", utxo.status.block_height.unwrap_or(0))
+                                        // Address header with type badge
+                                        println!(
+                                            "  {} {}",
+                                            style(address).bold(),
+                                            style(format!("[{}]", script_type)).dim()
+                                        );
+
+                                        let utxo_count = utxos.len();
+                                        for (i, utxo) in utxos.iter().enumerate() {
+                                            let is_last = i == utxo_count - 1;
+                                            let branch = if is_last { "└─" } else { "├─" };
+                                            let continuation = if is_last { "   " } else { "│  " };
+
+                                            // Status with symbol and color
+                                            let status_display = if utxo.status.confirmed {
+                                                let block = utxo.status.block_height.unwrap_or(0);
+                                                format!(
+                                                    "{} {}",
+                                                    style("✔").green(),
+                                                    style(format!("block {}", format_with_commas(block))).dim()
+                                                )
                                             } else {
-                                                "unconfirmed".to_string()
+                                                format!("{} {}", style("◌").yellow(), style("pending").yellow())
                                             };
 
+                                            // Format amounts
                                             let btc_value = utxo.value as f64 / 100_000_000.0;
+                                            let sats_formatted = format_with_commas(utxo.value);
 
+                                            // Truncate TXID: first 8 + ... + last 8
+                                            let txid_short = if utxo.txid.len() > 20 {
+                                                format!("{}...{}", &utxo.txid[..8], &utxo.txid[utxo.txid.len()-8..])
+                                            } else {
+                                                utxo.txid.clone()
+                                            };
+
+                                            // UTXO line with box drawing
                                             println!(
-                                                "  TXID:   {}",
-                                                utxo.txid
+                                                "  {} {} {}",
+                                                style(branch).dim(),
+                                                style(format!("{} sats", sats_formatted)).cyan().bold(),
+                                                style(format!("({:.8} BTC)", btc_value)).dim()
                                             );
-                                            println!("  Vout:   {}", utxo.vout);
-                                            println!("  Amount: {} sats ({} BTC)",
-                                                style(utxo.value).color256(208),
-                                                style(format!("{:.8}", btc_value)).color256(208));
-                                            println!("  Type:   {}", script_type);
-                                            println!("  Status: {}", status);
-                                            println!();
+
+                                            // Details indented under the UTXO
+                                            println!(
+                                                "  {}  {} {}:{} {}",
+                                                style(continuation).dim(),
+                                                style("txid").dim(),
+                                                txid_short,
+                                                utxo.vout,
+                                                status_display
+                                            );
 
                                             total_utxos += 1;
                                             total_value += utxo.value;
                                         }
+                                        println!();
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("Warning: Failed to fetch UTXOs for {}: {}", address, e);
+                                    eprintln!(
+                                        "  {} Failed to fetch UTXOs for {}: {}",
+                                        style("!").yellow(),
+                                        address,
+                                        e
+                                    );
                                 }
                             }
                         }
 
                         if total_utxos == 0 {
-                            println!("No UTXOs found.");
+                            println!("{}", style("No UTXOs found.").dim());
                         } else {
                             let total_btc = total_value as f64 / 100_000_000.0;
-                            println!("{}", "=".repeat(64));
-                            println!("Total: {} UTXOs, {} sats ({} BTC)",
-                                total_utxos,
-                                style(total_value).color256(208).bold(),
-                                style(format!("{:.8}", total_btc)).color256(208).bold());
+                            println!();
+                            println!("{}", style("─".repeat(50)).dim());
+                            println!();
+                            println!(
+                                "  {} {} {}  {}",
+                                style("Total").dim(),
+                                style(format!("{} sats", format_with_commas(total_value))).cyan().bold(),
+                                style(format!("({:.8} BTC)", total_btc)).dim(),
+                                style(format!("{} UTXOs", total_utxos)).dim()
+                            );
+                            println!();
                         }
                     }
                     Err(e) => {
