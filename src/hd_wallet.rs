@@ -132,3 +132,150 @@ pub fn derive_address_from_xpub(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Well-known BIP39 test mnemonic
+    const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    fn get_test_mnemonic() -> Mnemonic {
+        Mnemonic::parse_in(bip39::Language::English, TEST_MNEMONIC).unwrap()
+    }
+
+    #[test]
+    fn test_address_type_default() {
+        let addr_type = AddressType::default();
+        assert_eq!(addr_type, AddressType::P2wpkh);
+    }
+
+    #[test]
+    fn test_derive_bip44_account_xpub_mainnet() {
+        let mnemonic = get_test_mnemonic();
+        let result = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin);
+        assert!(result.is_ok());
+        let xpub = result.unwrap();
+        assert_eq!(xpub, "xpub6BosfCnifzxcFwrSzQiqu2DBVTshkCXacvNsWGYJVVhhawA7d4R5WSWGFNbi8Aw6ZRc1brxMyWMzG3DSSSSoekkudhUd9yLb6qx39T9nMdj");
+    }
+
+    #[test]
+    fn test_derive_bip44_account_xpub_signet() {
+        let mnemonic = get_test_mnemonic();
+        let result = derive_bip44_account_xpub(&mnemonic, Network::Signet);
+        assert!(result.is_ok());
+        let xpub = result.unwrap();
+        assert_eq!(xpub, "tpubDC5FSnBiZDMmhiuCmWAYsLwgLYrrT9rAqvTySfuCCrgsWz8wxMXUS9Tb9iVMvcRbvFcAHGkMD5Kx8koh4GquNGNTfohfk7pgjhaPCdXpoba");
+    }
+
+    #[test]
+    fn test_derive_bip44_account_xpub_deterministic() {
+        let mnemonic = get_test_mnemonic();
+        let xpub1 = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin).unwrap();
+        let xpub2 = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin).unwrap();
+        assert_eq!(xpub1, xpub2, "Same mnemonic should produce same xpub");
+    }
+
+    #[test]
+    fn test_derive_private_key_mainnet() {
+        let mnemonic = get_test_mnemonic();
+        let result = derive_private_key(&mnemonic, Network::Bitcoin, 0);
+        assert!(result.is_ok());
+        let secret_key = result.unwrap();
+        assert_eq!(secret_key.secret_bytes().len(), 32);
+    }
+
+    #[test]
+    fn test_derive_private_key_deterministic() {
+        let mnemonic = get_test_mnemonic();
+        let key1 = derive_private_key(&mnemonic, Network::Bitcoin, 0).unwrap();
+        let key2 = derive_private_key(&mnemonic, Network::Bitcoin, 0).unwrap();
+        assert_eq!(key1.secret_bytes(), key2.secret_bytes(), "Same derivation should produce same key");
+    }
+
+    #[test]
+    fn test_derive_private_key_different_indices() {
+        let mnemonic = get_test_mnemonic();
+        let key0 = derive_private_key(&mnemonic, Network::Bitcoin, 0).unwrap();
+        let key1 = derive_private_key(&mnemonic, Network::Bitcoin, 1).unwrap();
+        assert_ne!(key0.secret_bytes(), key1.secret_bytes(), "Different indices should produce different keys");
+    }
+
+    #[test]
+    fn test_derive_public_key() {
+        let mnemonic = get_test_mnemonic();
+        let result = derive_public_key(&mnemonic, Network::Bitcoin, 0);
+        assert!(result.is_ok());
+        let pubkey = result.unwrap();
+        // Compressed public key should be 33 bytes
+        assert_eq!(pubkey.to_bytes().len(), 33);
+        // First byte should be 0x02 or 0x03 for compressed pubkey
+        let first_byte = pubkey.to_bytes()[0];
+        assert!(first_byte == 0x02 || first_byte == 0x03);
+    }
+
+    #[test]
+    fn test_derive_public_key_deterministic() {
+        let mnemonic = get_test_mnemonic();
+        let pubkey1 = derive_public_key(&mnemonic, Network::Bitcoin, 0).unwrap();
+        let pubkey2 = derive_public_key(&mnemonic, Network::Bitcoin, 0).unwrap();
+        assert_eq!(pubkey1.to_bytes(), pubkey2.to_bytes());
+    }
+
+    #[test]
+    fn test_derive_address_p2pk() {
+        let mnemonic = get_test_mnemonic();
+        let xpub = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin).unwrap();
+        let address = derive_address_from_xpub(&xpub, Network::Bitcoin, 0, AddressType::P2pk).unwrap();
+        assert!(hex::decode(&address).is_ok(), "P2PK should be valid hex");
+        assert_eq!(address, "03aaeb52dd7494c361049de67cc680e83ebcbbbdbeb13637d92cd845f70308af5e");
+    }
+
+    #[test]
+    fn test_derive_address_p2pkh() {
+        let mnemonic = get_test_mnemonic();
+        let xpub = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin).unwrap();
+        let address = derive_address_from_xpub(&xpub, Network::Bitcoin, 0, AddressType::P2pkh).unwrap();
+        assert_eq!(address,"1LqBGSKuX5yYUonjxT5qGfpUsXKYYWeabA");
+    }
+
+    #[test]
+    fn test_derive_address_p2wpkh() {
+        let mnemonic = get_test_mnemonic();
+        let xpub = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin).unwrap();
+        let address = derive_address_from_xpub(&xpub, Network::Bitcoin, 0, AddressType::P2wpkh).unwrap();
+        assert_eq!(address, "bc1qmxrw6qdh5g3ztfcwm0et5l8mvws4eva24kmp8m")
+    }
+
+    #[test]
+    fn test_derive_address_p2tr() {
+        let mnemonic = get_test_mnemonic();
+        let xpub = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin).unwrap();
+        let address = derive_address_from_xpub(&xpub, Network::Bitcoin, 0, AddressType::P2tr).unwrap();
+        assert_eq!(address, "bc1plguuppjuw5uk2rpyjnnzvwsuvy5ctswns9fsvhrvn4qt04ns4nmscf9eqf");
+    }
+
+    #[test]
+    fn test_derive_address_deterministic() {
+        let mnemonic = get_test_mnemonic();
+        let xpub = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin).unwrap();
+        let addr1 = derive_address_from_xpub(&xpub, Network::Bitcoin, 0, AddressType::P2wpkh).unwrap();
+        let addr2 = derive_address_from_xpub(&xpub, Network::Bitcoin, 0, AddressType::P2wpkh).unwrap();
+        assert_eq!(addr1, addr2, "Same derivation should produce same address");
+    }
+
+    #[test]
+    fn test_derive_address_different_indices() {
+        let mnemonic = get_test_mnemonic();
+        let xpub = derive_bip44_account_xpub(&mnemonic, Network::Bitcoin).unwrap();
+        let addr0 = derive_address_from_xpub(&xpub, Network::Bitcoin, 0, AddressType::P2wpkh).unwrap();
+        let addr1 = derive_address_from_xpub(&xpub, Network::Bitcoin, 1, AddressType::P2wpkh).unwrap();
+        assert_ne!(addr0, addr1, "Different indices should produce different addresses");
+    }
+
+    #[test]
+    fn test_derive_address_invalid_xpub() {
+        let result = derive_address_from_xpub("invalid_xpub", Network::Bitcoin, 0, AddressType::P2wpkh);
+        assert!(result.is_err(), "Invalid xpub should fail");
+    }
+}
